@@ -7,4 +7,9 @@ $lang['userfilter']  = 'LDAP filter to search for user accounts. Eg. <code>(&amp
 $lang['groupfilter'] = 'LDAP filter to search for groups. Eg. <code>(&amp;(objectClass=posixGroup)(|(gidNumber=%{gid})(memberUID=%{user})))</code>';
 $lang['version']     = 'The protocol version to use. You may need to set this to <code>3</code>';
 $lang['starttls']    = 'Use TLS connections?';
+$lang['binddn']      = 'DN of an optional bind user if anonymous bind is not sufficient. Eg. <code>cn=admin, dc=my, dc=home</code>';
+$lang['bindpw']      = 'Password of above user';
+$lang['userscope']   = 'Limit search scope for user search';
+$lang['groupscope']  = 'Limit search scope for group search';
+$lang['groupkey']    = 'Group membership from any user attribute (instead of standard AD groups) e.g. group from department or telephone number';
 $lang['debug']       = 'Display additional debug information on errors';
