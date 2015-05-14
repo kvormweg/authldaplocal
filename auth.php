@@ -277,10 +277,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
             }
         }
 
-        // always add the default group to the list of groups
-        if(!$info['grps'] or !in_array($conf['defaultgroup'], $info['grps'])) {
-            $info['grps'][] = $conf['defaultgroup'];
-        }
         return $info;
     }
 
@@ -320,14 +316,14 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
         msg('The user '.$user.' does not exist in LDAP',-1);
         return false;
       }
-      // fetch real name and email from LDAP
+      // fetch real name and email and groups from LDAP
       $name = $info['name'];
       $mail = $info['mail'];
-      $grps = $info['grps'];
       $pass = '';
+      $grps = array_merge($grps, $info['grps']);
 
       // set default group if no groups specified
-      if (!is_array($grps)) $grps = array($conf['defaultgroup']);
+      if (!count($grps)) $grps[] = $conf['defaultgroup'];
 
       // prepare user line
       $groups = join(',',$grps);
