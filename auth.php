@@ -31,7 +31,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
         parent::__construct();
         global $config_cascade;
 
-        global $conf;
         if(!@is_readable($config_cascade['plainauth.users']['default'])) {
           $this->success = false;
         } else {
@@ -255,7 +254,8 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
             $this->_debug('LDAP search at: '.htmlspecialchars($base.' '.$filter), 0, __LINE__, __FILE__);
 
             if(!$sr) {
-                $this->_debug("LDAP: Reading group memberships failed", 0,__LINE__,__FILE__);
+                msg("LDAP: Reading group memberships failed", -1);
+                return false;
                 $this->_debug('LDAP group search: '.htmlspecialchars(ldap_error($this->con)), 0,__LINE__,__FILE__);
             }
             $result = ldap_get_entries($this->con, $sr);
@@ -276,8 +276,9 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
                 $info['grps'][] = $group;
             }
         }
-        // add the default group to the list of groups if list is empty
-        if(!count($info['grps'])) {
+
+        // always add the default group to the list of groups
+        if(!$info['grps'] or !in_array($conf['defaultgroup'], $info['grps'])) {
             $info['grps'][] = $conf['defaultgroup'];
         }
         return $info;
@@ -311,17 +312,18 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
       if($this->users === null) $this->_loadUserData();
       if(isset($this->users[$user])) {
       	msg('The user '.$user.' does already exist',-1);
-      	return false;
+        return false;
       }
       // but the user must exist in LDAP
       $info = $this->getUserData($user,true);
       if(empty($info['dn'])) {
-      	msg('The user '.$user.' does not exist in LDAP',-1);
-        return false;	
+        msg('The user '.$user.' does not exist in LDAP',-1);
+        return false;
       }
       // fetch real name and email from LDAP
       $name = $info['name'];
       $mail = $info['mail'];
+      $grps = $info['grps'];
       $pass = '';
 
       // set default group if no groups specified
@@ -335,11 +337,8 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
         $this->users[$user] = compact('pass','name','mail','grps');
         return TRUE;
       }
-
-        msg(
-            'The '.$config_cascade['plainauth.users']['default'].
-                ' file is not writable. Please inform the Wiki-Admin', -1
-        );
+      msg('The '.$config_cascade['plainauth.users']['default'].
+          ' file is not writable. Please inform the Wiki-Admin', -1);
       return null;
     }
 
@@ -567,8 +566,8 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      *
      * @author Chris Smith <chris@jalakai.co.uk>
      *
-     * @param string $user User login
-     * @param array  $info User's userinfo array
+     * @param  string $user the user's login name
+     * @param  array  $info the user's userinfo array
      * @return bool
      */
     protected  function _filter($user, $info) {
@@ -585,9 +584,12 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
     }
 
     /**
-     * construct a filter pattern
+     * Set the filter pattern
      *
-     * @param array $filter
+     * @author Chris Smith <chris@jalakai.co.uk>
+     *
+     * @param $filter
+     * @return void
      */
     protected function _constructPattern($filter) {
         $this->_pattern = array();
@@ -684,7 +686,13 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
             if(defined('LDAP_OPT_NETWORK_TIMEOUT')) {
                 ldap_set_option($this->con, LDAP_OPT_NETWORK_TIMEOUT, 1);
             }
+
+            if($this->getConf('binddn') && $this->getConf('bindpw')) {
+                $bound = @ldap_bind($this->con, $this->getConf('binddn'), $this->getConf('bindpw'));
+                $this->bound = 2;
+            } else {
             $bound = @ldap_bind($this->con);
+            }
             if($bound) {
                 break;
             }
@@ -715,23 +723,23 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      * @return resource
      */
     protected function _ldapsearch($link_identifier, $base_dn, $filter, $scope = 'sub', $attributes = null,
-                         $attrsonly = 0, $sizelimit = 0, $timelimit = 0, $deref = LDAP_DEREF_NEVER) {
+                         $attrsonly = 0, $sizelimit = 0) {
         if(is_null($attributes)) $attributes = array();
 
         if($scope == 'base') {
             return @ldap_read(
                 $link_identifier, $base_dn, $filter, $attributes,
-                $attrsonly, $sizelimit, $timelimit, $deref
+                $attrsonly, $sizelimit
             );
         } elseif($scope == 'one') {
             return @ldap_list(
                 $link_identifier, $base_dn, $filter, $attributes,
-                $attrsonly, $sizelimit, $timelimit, $deref
+                $attrsonly, $sizelimit
             );
         } else {
             return @ldap_search(
                 $link_identifier, $base_dn, $filter, $attributes,
-                $attrsonly, $sizelimit, $timelimit, $deref
+                $attrsonly, $sizelimit
             );
         }
     }
@@ -749,6 +757,5 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
         if(!$this->getConf('debug')) return;
         msg($message, $err, $line, $file);
     }
-}
 
-//Setup VIM: ex: et ts=4 enc=utf-8 :
+}
