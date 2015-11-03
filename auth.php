@@ -7,7 +7,7 @@ if(!defined('DOKU_INC')) die();
  *
  * @license   GPL 2 (http://www.gnu.org/licenses/gpl.html)
  * @author    Andreas Gohr <andi@splitbrain.org>
- * @author     Chris Smith <chris@jalakai.co.uk>
+ * @author    Chris Smith <chris@jalakaic.co.uk>
  * @author    Jan Schumann <js@schumann-it.com>
  * @author    Klaus Vormweg <klaus.vormweg@gmx.de>
  */
@@ -52,6 +52,8 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
             return;
         }
 
+        // Add the capabilities to change the password
+        $this->cando['modPass'] = $this->getConf('modPass');
     }
 
     /**
@@ -122,7 +124,7 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
             return true;
         } else {
             // See if we can find the user
-            $info = $this->getUserData($user, true);
+            $info = $this->_getUserData($user, true);
             if(empty($info['dn'])) {
                 return false;
             } else {
@@ -163,13 +165,23 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      * @author  Dan Allen <dan.j.allen@gmail.com>
      * @author  <evaldas.auryla@pheur.org>
      * @author  Stephane Chazelas <stephane.chazelas@emerson.com>
+     * @author  Steffen Schoch <schoch@dsb.net>
      * @author  Klaus Vormweg <klaus.vormweg@gmx.de>
      *
+     * @param   string $user
+     * @param   bool   $requireGroups (optional) - ignored, groups are always supplied by this plugin
+     * @return  array containing user data or false
+     */
+    public function getUserData($user, $requireGroups=true) {
+        return $this->_getUserData($user);
+    }
+
+    /**
      * @param   string $user
      * @param   bool   $inbind authldap specific, true if in bind phase
      * @return  array containing user data or false
      */
-    public function getUserData($user, $inbind = false) {
+    protected function _getUserData($user, $inbind = false) {
         global $conf;
         if(!$this->_openLDAP()) return false;
 
@@ -192,6 +204,7 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
             }
         }
 
+        $info = array();
         $info['user']   = $user;
         $info['server'] = $this->getConf('server');
 
@@ -255,16 +268,24 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
 
             if(!$sr) {
                 msg("LDAP: Reading group memberships failed", -1);
-                return false;
                 $this->_debug('LDAP group search: '.htmlspecialchars(ldap_error($this->con)), 0,__LINE__,__FILE__);
+                return false;
             }
             $result = ldap_get_entries($this->con, $sr);
             ldap_free_result($sr);
 
             if(is_array($result)) foreach($result as $grp) {
-                if(!empty($grp[$this->getConf('groupkey')][0])) {
-                    $this->_debug('LDAP usergroup: '.htmlspecialchars($grp[$this->getConf('groupkey')][0]), 0, __LINE__, __FILE__);
-                    $info['grps'][] = $grp[$this->getConf('groupkey')][0];
+                if(!empty($grp[$this->getConf('groupkey')])) {
+                    $group = $grp[$this->getConf('groupkey')];
+                    if(is_array($group)){
+                        $group = $group[0];
+                    } else {
+                        $this->_debug('groupkey did not return a detailed result', 0, __LINE__, __FILE__);
+                    }
+                    if($group === '') continue;
+
+                    $this->_debug('LDAP usergroup: '.htmlspecialchars($group), 0, __LINE__, __FILE__);
+                    $info['grps'][] = $group;
                 }
             }
         }
@@ -276,7 +297,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
                 $info['grps'][] = $group;
             }
         }
-
         return $info;
     }
 
@@ -332,7 +352,9 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
       $grps = array_merge($grps, $info['grps']);
 
       // set default group if no groups specified
-      if (!count($grps)) $grps[] = $conf['defaultgroup'];
+      if (!count($grps) and $conf['defaultgroup']) {
+        $grps[] = $conf['defaultgroup'];
+      }
 
       // prepare user line
       $groups = join(',',$grps);
@@ -567,8 +589,8 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      *
      * @author   Chris Smith <chris@jalakai.co.uk>
      *
-     * @param string $user User login
-     * @param array  $info User's userinfo array
+     * @param  string $user the user's login name
+     * @param  array  $info the user's userinfo array
      * @return bool
      */
     protected function _filter($user, $info) {
@@ -585,9 +607,12 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
     }
 
     /**
-     * construct a filter pattern
+     * Set the filter pattern
      *
-     * @param array $filter
+     * @author Chris Smith <chris@jalakai.co.uk>
+     *
+     * @param $filter
+     * @return void
      */
     protected function _constructPattern($filter) {
         $this->_pattern = array();
@@ -606,9 +631,12 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      * @return string
      */
     protected function _filterEscape($string) {
-        return preg_replace(
-            '/([\x00-\x1F\*\(\)\\\\])/e',
-            '"\\\\\".join("",unpack("H2","$1"))',
+        // see https://github.com/adldap/adLDAP/issues/22
+        return preg_replace_callback(
+            '/([\x00-\x1F\*\(\)\\\\])/',
+            function ($matches) {
+                return "\\".join("", unpack("H2", $matches[1]));
+            },
             $string
         );
     }
@@ -621,6 +649,10 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      */
     protected function _openLDAP() {
         if($this->con) return true; // connection already established
+
+        if($this->getConf('debug')) {
+            ldap_set_option(NULL, LDAP_OPT_DEBUG_LEVEL, 7);
+        }
 
         $this->bound = 0;
 
@@ -660,13 +692,13 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
                         }
                     }
                     // needs version 3
-                    if($this->getConf('referrals')) {
+                    if($this->getConf('referrals') > -1) {
                         if(!@ldap_set_option(
                             $this->con, LDAP_OPT_REFERRALS,
                             $this->getConf('referrals')
                         )
                         ) {
-                            msg('Setting LDAP referrals to off failed', -1);
+                            msg('Setting LDAP referrals failed', -1);
                             $this->_debug('LDAP referal set: '.htmlspecialchars(ldap_error($this->con)), 0, __LINE__, __FILE__);
                         }
                     }
@@ -698,6 +730,7 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
 
         if(!$bound) {
             msg("LDAP: couldn't connect to LDAP server", -1);
+            $this->_debug(ldap_error($this->con), 0, __LINE__, __FILE__);
             return false;
         }
 
@@ -713,11 +746,9 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      * @param string   $base_dn
      * @param string   $filter
      * @param string   $scope can be 'base', 'one' or 'sub'
-     * @param null     $attributes
+     * @param null|array $attributes
      * @param int      $attrsonly
      * @param int      $sizelimit
-     * @param int      $timelimit
-     * @param int      $deref
      * @return resource
      */
     protected function _ldapsearch($link_identifier, $base_dn, $filter, $scope = 'sub', $attributes = null,

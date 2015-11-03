@@ -12,24 +12,24 @@ Ths mix shows if you have a look at the code. The backend is inherited from the 
 This authentication backend is published under the GPL V2.
 
 ## Installation
-Unpack the file into the `/lib/plugins` directory of your Dokuwiki installation. It will create a dicrectoty named 'authldaplocal' there.
+Unpack the file into the `/lib/plugins` directory of your Dokuwiki installation. It will create a directory named 'authldaplocal' there.
 
 ## Configuration
 As of Dokuwiki release 2013-05-10 (Weatherwax) auth plugins are treated almost in the same way as normal plugins. They are installed in the plugin directory and have a configuration dialog. Configuration of the backend is done through the dokuwiki configuration dialog:
 
 Mark 'Use Access Control Lists', select 'authldaplocal' as the authentication backend:
 
-![Screenshot 1 of configuration page](https://github.com/kvormweg/ldaplocal/tree/master/ldaplocal1.jpg "Screenshot 1 of configuration page") 
+![Screenshot 1 of configuration page](https://github.com/kvormweg/ldaplocal/tree/master/ldaplocal1.jpg "Screenshot 1 of configuration page")
 
 configure your LDAP server:
 
-![Screenshot 2 of configuration page](https://github.com/kvormweg/ldaplocal/tree/master/ldaplocal2.jpg "Screenshot 2 of configuration page") 
+![Screenshot 2 of configuration page](https://github.com/kvormweg/ldaplocal/tree/master/ldaplocal2.jpg "Screenshot 2 of configuration page")
 
 ````
 # Use access control
 $conf['useacl'] = 1;
 #  Authentication type LDAP using local ACLs
-$conf['authtype']     = 'authldaplocal';  
+$conf['authtype']     = 'authldaplocal';
 # LDAP server URL (required)
 $conf['plugin']['authldaplocal']['server']      = 'ldap://ldap.example.com:389';
 # port (required but may be zero)

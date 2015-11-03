@@ -1,7 +1,7 @@
 base   authldaplocal
 author Klaus Vormweg
 email  klaus.vormweg@gmx.de
-date   2013-12-01
+date   2015-11-03
 name   ldaplocal auth plugin
 desc   Provides authentication against LDAP server for local accounts only
 url    http://www.tuhh.de/~psvkv/dokuwiki/ldaplocal.html
