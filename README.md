@@ -17,13 +17,8 @@ Unpack the file into the `/lib/plugins` directory of your Dokuwiki installation.
 ## Configuration
 As of Dokuwiki release 2013-05-10 (Weatherwax) auth plugins are treated almost in the same way as normal plugins. They are installed in the plugin directory and have a configuration dialog. Configuration of the backend is done through the dokuwiki configuration dialog:
 
-Mark 'Use Access Control Lists', select 'authldaplocal' as the authentication backend:
+Mark 'Use Access Control Lists', select 'authldaplocal' as the authentication backend and configure your LDAP server:
 
-![Screenshot 1 of configuration page](https://github.com/kvormweg/ldaplocal/tree/master/ldaplocal1.jpg "Screenshot 1 of configuration page")
-
-configure your LDAP server:
-
-![Screenshot 2 of configuration page](https://github.com/kvormweg/ldaplocal/tree/master/ldaplocal2.jpg "Screenshot 2 of configuration page")
 
 ````
 # Use access control
