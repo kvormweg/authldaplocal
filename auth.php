@@ -9,6 +9,13 @@ if(!defined('DOKU_INC')) die();
  * @author    Andreas Gohr <andi@splitbrain.org>
  * @author    Chris Smith <chris@jalakaic.co.uk>
  * @author    Jan Schumann <js@schumann-it.com>
+ * @author    Trouble
+ * @author    Dan Allen <dan.j.allen@gmail.com>
+ * @author    <evaldas.auryla@pheur.org>
+ * @author    Stephane Chazelas <stephane.chazelas@emerson.com>
+ * @author    Steffen Schoch <schoch@dsb.net>
+ * @author    Troels Liebe Bentsen <tlb@rapanden.dk>
+ * @author    Philip Knack <p.knack@stollfuss.de>
  * @author    Klaus Vormweg <klaus.vormweg@gmx.de>
  */
 class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
@@ -26,6 +33,10 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
 
     /**
      * Constructor
+     *
+     * Carry out sanity checks to ensure the object is
+     * able to operate. Set capabilities.
+     *
      */
     public function __construct() {
         parent::__construct();
@@ -63,8 +74,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      * plaintext password is correct by trying to bind
      * to the LDAP server
      *
-     * @author  Andreas Gohr <andi@splitbrain.org>
-     * @author  Klaus Vormweg <klaus.vormweg@gmx.de>
      * @param string $user
      * @param string $pass
      * @return  bool
@@ -81,7 +90,7 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
         // indirect user bind
         if($this->getConf('binddn') && $this->getConf('bindpw')) {
             // use superuser credentials
-            if(!@ldap_bind($this->con, $this->getConf('binddn'), $this->getConf('bindpw'))) {
+            if(!@ldap_bind($this->con, $this->getConf('binddn'), conf_decodeString($this->getConf('bindpw')))) {
                 $this->_debug('LDAP bind as superuser: '.htmlspecialchars(ldap_error($this->con)), 0, __LINE__, __FILE__);
                 return false;
             }
@@ -153,21 +162,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      * mail string  email addres of the user
      * grps array   list of groups the user is in
      *
-     * This LDAP specific function returns the following
-     * addional fields:
-     *
-     * dn     string  distinguished name (DN)
-     * uid    string  Posix User ID
-     * inbind bool    for internal use - avoid loop in binding
-     *
-     * @author  Andreas Gohr <andi@splitbrain.org>
-     * @author  Trouble
-     * @author  Dan Allen <dan.j.allen@gmail.com>
-     * @author  <evaldas.auryla@pheur.org>
-     * @author  Stephane Chazelas <stephane.chazelas@emerson.com>
-     * @author  Steffen Schoch <schoch@dsb.net>
-     * @author  Klaus Vormweg <klaus.vormweg@gmx.de>
-     *
      * @param   string $user
      * @param   bool   $requireGroups (optional) - ignored, groups are always supplied by this plugin
      * @return  array containing user data or false
@@ -188,7 +182,7 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
         // force superuser bind if wanted and not bound as superuser yet
         if($this->getConf('binddn') && $this->getConf('bindpw') && $this->bound < 2) {
             // use superuser credentials
-            if(!@ldap_bind($this->con, $this->getConf('binddn'), $this->getConf('bindpw'))) {
+            if(!@ldap_bind($this->con, $this->getConf('binddn'), conf_decodeString($this->getConf('bindpw')))) {
                 $this->_debug('LDAP bind as superuser: '.htmlspecialchars(ldap_error($this->con)), 0, __LINE__, __FILE__);
                 return false;
             }
@@ -233,7 +227,11 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
         $info['dn']   = $user_result['dn'];
         $info['gid']  = $user_result['gidnumber'][0];
         $info['mail'] = $user_result['mail'][0];
-        $info['name'] = $user_result['cn'][0];
+        if(isset($user_result['displayname'][0]) and $user_result['displayname'][0] != '') {
+          $info['name'] = $user_result['displayname'][0];
+        } else {
+          $info['name'] = $user_result['cn'][0];
+        }
         $info['grps'] = array();
 
         // overwrite if other attribs are specified.
@@ -310,6 +308,27 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
     }
 
     /**
+     * Creates a string suitable for saving as a line
+     * in the file database
+     * (delimiters escaped, etc.)
+     *
+     * @param string $user
+     * @param string $pass
+     * @param string $name
+     * @param string $mail
+     * @param array  $grps list of groups the user is in
+     * @return string
+     */
+    protected function _createUserLine($user, $pass, $name, $mail, $grps) {
+        $groups   = join(',', $grps);
+        $userline = array($user, $pass, $name, $mail, $groups);
+        $userline = str_replace('\\', '\\\\', $userline); // escape \ as \\
+        $userline = str_replace(':', '\\:', $userline); // escape : as \:
+        $userline = join(':', $userline)."\n";
+        return $userline;
+    }
+
+    /**
      * Create a new User
      *
      * Returns false if the user already exists, null when an error
@@ -318,20 +337,16 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      * The new user will be added to the default group by this
      * function if grps are not specified (default behaviour).
      *
-     * @author  Andreas Gohr <andi@splitbrain.org>
-     * @author  Chris Smith <chris@jalakai.co.uk>
-     *
      * @param string $user
      * @param string $pwd
      * @param string $name
      * @param string $mail
      * @param array  $grps
      * @return bool|null|string
-     * @author  Klaus Vormweg <klaus.vormweg@gmx.de>
      */
     public function createUser($user, $pwd, $name, $mail, $grps = null) {
-        global $conf;
-        global $config_cascade;
+      global $conf;
+      global $config_cascade;
 
       // local user mustn't already exist
       if($this->users === null) $this->_loadUserData();
@@ -340,7 +355,7 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
         return false;
       }
       // but the user must exist in LDAP
-      $info = $this->getUserData($user,true);
+      $info = $this->_getUserData($user);
       if(empty($info['dn'])) {
         msg('The user '.$user.' does not exist in LDAP',-1);
         return false;
@@ -349,30 +364,30 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
       $name = $info['name'];
       $mail = $info['mail'];
       $pass = '';
-      $grps = array_merge($grps, $info['grps']);
+      if(is_array($grps)) {
+        $grps = array_merge($grps, $info['grps']);
+      } else {
+        $grps =  $info['grps'];
+      }
 
       // set default group if no groups specified
-      if (!count($grps) and $conf['defaultgroup']) {
-        $grps[] = $conf['defaultgroup'];
-      }
+      if(!is_array($grps) or !$grps) $grps = array($conf['defaultgroup']);
 
       // prepare user line
-      $groups = join(',',$grps);
-      $userline = join(':',array($user,$pass,$name,$mail,$groups))."\n";
+      $userline = $this->_createUserLine($user, $pass, $name, $mail, $grps);
 
-      if (io_saveFile($config_cascade['plainauth.users']['default'],$userline,true)) {
-        $this->users[$user] = compact('pass','name','mail','grps');
-        return TRUE;
+      if(!io_saveFile($config_cascade['plainauth.users']['default'], $userline, true)) {
+          msg($this->getLang('writefail'), -1);
+          return false;
       }
-      msg('The '.$config_cascade['plainauth.users']['default'].
-          ' file is not writable. Please inform the Wiki-Admin', -1);
-      return null;
+
+      $this->users[$user] = compact('pass','name','mail','grps');
+      return true;
     }
 
     /**
      * Modify user data
      *
-     * @author  Chris Smith <chris@jalakai.co.uk>
      * @param   string $user      nick of the user to be changed
      * @param   array  $changes   array of field/value pairs to be changed (password will be clear text)
      * @return  bool
@@ -382,7 +397,17 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
         global $config_cascade;
 
         // sanity checks, user must already exist and there must be something to change
-        if(($userinfo = $this->getUserData($user)) === false) return false;
+        if(($userinfo = $this->getUserData($user)) === false) {
+            msg($this->getLang('usernotexists'), -1);
+            return false;
+        }
+
+        // don't modify protected users
+        if(!empty($userinfo['protected'])) {
+            msg(sprintf($this->getLang('protected'), hsc($user)), -1);
+            return false;
+        }
+
         if(!is_array($changes) || !count($changes)) return true;
 
         // update userinfo with new data, remembering to encrypt any password
@@ -396,17 +421,11 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
             $userinfo[$field] = $value;
         }
 
-        $groups   = join(',', $userinfo['grps']);
-        $userline = join(':', array($newuser, $userinfo['pass'], $userinfo['name'], $userinfo['mail'], $groups))."\n";
+        $userline = $this->_createUserLine($newuser, $userinfo['pass'], $userinfo['name'], $userinfo['mail'], $userinfo['grps']);
 
-        if(!$this->deleteUsers(array($user))) {
-            msg('Unable to modify user data. Please inform the Wiki-Admin', -1);
-            return false;
-        }
-
-        if(!io_saveFile($config_cascade['plainauth.users']['default'], $userline, true)) {
-            msg('There was an error modifying your user data. You should register again.', -1);
-            // FIXME, user has been deleted but not recreated, should force a logout and redirect to login page
+        if(!io_replaceInFile($config_cascade['plainauth.users']['default'], '/^'.$user.':/', $userline, true)) {
+            msg('There was an error modifying your user data. You may need to register again.', -1);
+            // FIXME, io functions should be fail-safe so existing data isn't lost
             $ACT = 'register';
             return false;
         }
@@ -418,7 +437,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
     /**
      * Remove one or more users from the list of registered users
      *
-     * @author  Christopher Smith <chris@jalakai.co.uk>
      * @param   array  $users   array of users to be deleted
      * @return  int             the number of users deleted
      */
@@ -431,13 +449,21 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
 
         $deleted = array();
         foreach($users as $user) {
+            // don't delete protected users
+            if(!empty($this->users[$user]['protected'])) {
+                msg(sprintf($this->getLang('protected'), hsc($user)), -1);
+                continue;
+            }
             if(isset($this->users[$user])) $deleted[] = preg_quote($user, '/');
         }
 
         if(empty($deleted)) return 0;
 
         $pattern = '/^('.join('|', $deleted).'):/';
-        io_deleteFromFile($config_cascade['plainauth.users']['default'], $pattern, true);
+        if (!io_deleteFromFile($config_cascade['plainauth.users']['default'], $pattern, true)) {
+            msg($this->getLang('writefail'), -1);
+            return 0;
+        }
 
         // reload the user list and count the difference
         $count = count($this->users);
@@ -448,8 +474,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
 
     /**
      * Return a count of the number of user which meet $filter criteria
-     *
-     * @author  Chris Smith <chris@jalakai.co.uk>
      *
      * @param array $filter
      * @return int
@@ -472,8 +496,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
 
     /**
      * Bulk retrieval of user data
-     *
-     * @author  Chris Smith <chris@jalakai.co.uk>
      *
      * @param   int   $start index of first user to be returned
      * @param   int   $limit max number of users to be returned
@@ -511,7 +533,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      * Used by auth_getUserData to make the filter
      * strings for grouptree and groupfilter
      *
-     * @author  Troels Liebe Bentsen <tlb@rapanden.dk>
      * @param   string $filter ldap search filter with placeholders
      * @param   array  $placeholders placeholders to fill in
      * @return  string
@@ -558,39 +579,86 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      * Load all user data
      *
      * loads the user file into a datastructure
-     *
-     * @author  Andreas Gohr <andi@splitbrain.org>
      */
     protected function _loadUserData() {
         global $config_cascade;
 
-        $this->users = array();
+        $this->users = $this->_readUserFile($config_cascade['plainauth.users']['default']);
 
-        if(!@file_exists($config_cascade['plainauth.users']['default'])) return;
+        // support protected users
+        if(!empty($config_cascade['plainauth.users']['protected'])) {
+            $protected = $this->_readUserFile($config_cascade['plainauth.users']['protected']);
+            foreach(array_keys($protected) as $key) {
+                $protected[$key]['protected'] = true;
+            }
+            $this->users = array_merge($this->users, $protected);
+        }
+    }
 
-        $lines = file($config_cascade['plainauth.users']['default']);
+    /**
+     * Read user data from given file
+     *
+     * ignores non existing files
+     *
+     * @param string $file the file to load data from
+     * @return array
+     */
+    protected function _readUserFile($file) {
+        $users = array();
+        if(!file_exists($file)) return $users;
+
+        $lines = file($file);
         foreach($lines as $line) {
             $line = preg_replace('/#.*$/', '', $line); //ignore comments
             $line = trim($line);
             if(empty($line)) continue;
 
-            $row    = explode(":", $line, 5);
+            $row = $this->_splitUserData($line);
+            $row = str_replace('\\:', ':', $row);
+            $row = str_replace('\\\\', '\\', $row);
+
             $groups = array_values(array_filter(explode(",", $row[4])));
 
-            $this->users[$row[0]]['pass'] = $row[1];
-            $this->users[$row[0]]['name'] = urldecode($row[2]);
-            $this->users[$row[0]]['mail'] = $row[3];
-            $this->users[$row[0]]['grps'] = $groups;
+            $users[$row[0]]['pass'] = $row[1];
+            $users[$row[0]]['name'] = urldecode($row[2]);
+            $users[$row[0]]['mail'] = $row[3];
+            $users[$row[0]]['grps'] = $groups;
         }
+        return $users;
+    }
+
+    protected function _splitUserData($line){
+        // due to a bug in PCRE 6.6, preg_split will fail with the regex we use here
+        // refer github issues 877 & 885
+        if ($this->_pregsplit_safe){
+            return preg_split('/(?<![^\\\\]\\\\)\:/', $line, 5);       // allow for : escaped as \:
+        }
+
+        $row = array();
+        $piece = '';
+        $len = strlen($line);
+        for($i=0; $i<$len; $i++){
+            if ($line[$i]=='\\'){
+                $piece .= $line[$i];
+                $i++;
+                if ($i>=$len) break;
+            } else if ($line[$i]==':'){
+                $row[] = $piece;
+                $piece = '';
+                continue;
+            }
+            $piece .= $line[$i];
+        }
+        $row[] = $piece;
+
+        return $row;
     }
 
     /**
      * return true if $user + $info match $filter criteria, false otherwise
      *
-     * @author   Chris Smith <chris@jalakai.co.uk>
-     *
-     * @param  string $user the user's login name
-     * @param  array  $info the user's userinfo array
+     * @param string $user User login
+     * @param array  $info User's userinfo array
      * @return bool
      */
     protected function _filter($user, $info) {
@@ -607,12 +675,9 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
     }
 
     /**
-     * Set the filter pattern
+     * construct a filter pattern
      *
-     * @author Chris Smith <chris@jalakai.co.uk>
-     *
-     * @param $filter
-     * @return void
+     * @param array $filter
      */
     protected function _constructPattern($filter) {
         $this->_pattern = array();
@@ -626,7 +691,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
      *
      * Ported from Perl's Net::LDAP::Util escape_filter_value
      *
-     * @author Andreas Gohr
      * @param  string $string
      * @return string
      */
@@ -644,8 +708,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
     /**
      * Opens a connection to the configured LDAP server and sets the wanted
      * option on the connection
-     *
-     * @author  Andreas Gohr <andi@splitbrain.org>
      */
     protected function _openLDAP() {
         if($this->con) return true; // connection already established
@@ -718,7 +780,7 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
             }
 
             if($this->getConf('binddn') && $this->getConf('bindpw')) {
-                $bound = @ldap_bind($this->con, $this->getConf('binddn'), $this->getConf('bindpw'));
+                $bound = @ldap_bind($this->con, $this->getConf('binddn'), conf_decodeString($this->getConf('bindpw')));
                 $this->bound = 2;
             } else {
                 $bound = @ldap_bind($this->con);
@@ -741,7 +803,6 @@ class auth_plugin_authldaplocal extends DokuWiki_Auth_Plugin {
     /**
      * Wraps around ldap_search, ldap_list or ldap_read depending on $scope
      *
-     * @author Andreas Gohr <andi@splitbrain.org>
      * @param resource $link_identifier
      * @param string   $base_dn
      * @param string   $filter

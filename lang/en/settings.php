@@ -18,6 +18,7 @@ $lang['groupkey']    = 'Group membership from any user attribute (instead of sta
 $lang['modPass']     = 'Can the LDAP password be changed via dokuwiki?';
 $lang['debug']       = 'Display additional debug information on errors';
 
+
 $lang['deref_o_0']   = 'LDAP_DEREF_NEVER';
 $lang['deref_o_1']   = 'LDAP_DEREF_SEARCHING';
 $lang['deref_o_2']   = 'LDAP_DEREF_FINDING';
